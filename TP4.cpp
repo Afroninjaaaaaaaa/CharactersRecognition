@@ -64,40 +64,35 @@ void prepareImage(Mat &image, string filename)
     }
 }
 
-void processImage(Mat &image, string filename)
+void processImage(Mat &image)
 {
-    prepareImage(image, filename);
     cvtColor(image, image, CV_BGR2GRAY);
     threshold(image, image, 140, 255, 1);
-    resize(image, image, Size(TRAINDIMENSIONS, TRAINDIMENSIONS));
-    cv::imshow("sample", image);
-                cv::waitKey(100);
-                
-    image = image.reshape(1,1);
+    dilatation(image, 4, 2);
+    erosion(image, 4, 2);
+}
+
+void drawResult(Mat &rawImage, Rect rect, float res, int i, int j)
+{
+    std::ostringstream stream;
+    rectangle(rawImage, rect, Scalar(255, 0, 0));
+    stream << res;
+    string label(stream.str());
+    putText(rawImage, label, Point(j, i), FONT_HERSHEY_COMPLEX, 0.5, Scalar(255, 0, 0));
 }
 
 void imgFindNearest(string filename, Ptr<ml::KNearest> knn)
 {
-    Mat image;
-    prepareImage(image, filename);
-    Mat resized = image.clone();
-    cvtColor(resized, resized, CV_BGR2GRAY);
-    threshold(resized, resized, 140, 255, 1);
-    dilatation(resized, 4, 2);
-    erosion(resized, 4, 2);
-
-    //namedWindow(windowName);
-    //imshow(windowName, image);
-    
-    Mat out;
-    float res;
-
-    
+    Mat rawImage, image, clone, img, out;
     vector<Rect> rects;
-    Mat clone, img;
-
-    resized.convertTo(resized, CV_32F, 1/255.0);
-    clone = resized.clone();
+    Rect rect;
+    float res;
+    
+    prepareImage(rawImage, filename);
+    image = rawImage.clone();
+    processImage(image);
+    image.convertTo(image, CV_32F, 1/255.0);
+    clone = image.clone();
 
     for (int i = 0; i < clone.rows; ++i)
     {
@@ -105,49 +100,19 @@ void imgFindNearest(string filename, Ptr<ml::KNearest> knn)
         {
             if (clone.at<float>(i, j) == 1.0)
             {
-                Rect rect;
                 floodFill(clone, Point(j, i), Scalar(0, 0, 0), &rect);
                 rects.push_back(rect);
-                img = resized(rect);
+                img = image(rect);
                 
                 resize(img, img, Size(TRAINDIMENSIONS, TRAINDIMENSIONS));
-                cv::imshow("sample", img);
-                cv::waitKey(10);
                 img = img.reshape(1,1);
-                Mat result;
-                float res = knn->findNearest(img, 3, result);
-                rectangle(image, rect, Scalar(0, 0, 255));
-                std::ostringstream stream;
-                stream << res;
-                string label(stream.str());
-                putText(image, label, Point(j, i), FONT_HERSHEY_COMPLEX, 1, Scalar(0, 0, 255));
-               // cout << result << endl;
-                
-
-            } 
+                res = knn->findNearest(img, 3, out);
+                drawResult(rawImage, rect, res, i, j);
+            }
         }
     }
 
-    imshow("TEST", image);
-
-
-
-    /*for (int i = 0; i < rects.size(); ++i)
-    {
-        rectangle(resized, rects[i], Scalar(255, 255, 255));
-    }
-
-    // TODO: FIX
-    for (int i = 0; i < rects.size(); ++i)
-    {
-        img = resized(rects[i]);
-        img.convertTo(img, CV_32FC1, 1/255.0);
-        resize(img, img, Size(TRAINDIMENSIONS, TRAINDIMENSIONS));
-        img = img.reshape(1,1);
-        
-        res = knn->findNearest(img, 10, out);
-        cout << res << endl;
-    }*/
+    imshow("TEST", rawImage);
 }
 
 void addTrainData(Mat &trainData, Mat image, int index)
@@ -177,6 +142,8 @@ int main(int argc, const char** argv)
 		return -1;
     }
 	rootDir = argv[1];
+
+
     for (int i = 0; i <= SIZEFACTOR; ++i)
 	{
         if (i == SIZEFACTOR)
@@ -185,12 +152,16 @@ int main(int argc, const char** argv)
             currDir = (rootDir + "/" + to_string(i));
 		filenames.clear();
 	    readFilenames(filenames, currDir);
+        // TODO : Go through all files of current directory (not SIZEFACTOR)
         for (int j = 0; j < SIZEFACTOR; ++j)
 		{
-            processImage(image, filenames[j]);
+            prepareImage(image, filenames[j]);
+            resize(image, image, Size(IMGDIMENSIONS, IMGDIMENSIONS));
+            processImage(image);
+            resize(image, image, Size(TRAINDIMENSIONS, TRAINDIMENSIONS));
+            image = image.reshape(1,1);
             addTrainData(trainData, image, (i * SIZEFACTOR) + j);
             classes.at<int>((i * SIZEFACTOR) + j, 0) = i;
-            cout << classes.at<int>((i * SIZEFACTOR) + j, 0) << endl;
 		}
 	}
     knn->train(trainData, ml::ROW_SAMPLE, classes);
