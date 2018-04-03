@@ -15,8 +15,9 @@
 using namespace cv;
 using namespace std;
 
-string windowName = "TP4";
-string windowName2 = "_TP4";
+string knnWindowName = "K-Nearest Neighbors";
+string svmWindowName = "SVM";
+string nbcWindowName = "Normal Bayesian Classificator";
 
 void readFilenames(std::vector<std::string> &filenames, const std::string &directory)
 {
@@ -81,15 +82,20 @@ void drawResult(Mat &rawImage, Rect rect, float res, int i, int j)
     putText(rawImage, label, Point(j, i), FONT_HERSHEY_COMPLEX, 0.5, Scalar(255, 0, 0));
 }
 
-void imgFindNearest(string filename, Ptr<ml::KNearest> knn)
+void imgPredict(string filename, Ptr<ml::KNearest> knn, Ptr<ml::SVM> svm, Ptr<ml::NormalBayesClassifier> nbc)
 {
-    Mat rawImage, image, clone, img, out;
+    Mat rawImage, knnRawImage, svmRawImage, nbcRawImage;
+    Mat image, clone, img;
+    Mat knnOut, svmOut, nbcOut;
     vector<Rect> rects;
     Rect rect;
-    float res;
+    float knnRes, svmRes, nbcRes;
     
     prepareImage(rawImage, filename);
     image = rawImage.clone();
+    knnRawImage = rawImage.clone();
+    svmRawImage = rawImage.clone();
+    nbcRawImage = rawImage.clone();
     processImage(image);
     image.convertTo(image, CV_32F, 1/255.0);
     clone = image.clone();
@@ -106,13 +112,21 @@ void imgFindNearest(string filename, Ptr<ml::KNearest> knn)
                 
                 resize(img, img, Size(TRAINDIMENSIONS, TRAINDIMENSIONS));
                 img = img.reshape(1,1);
-                res = knn->findNearest(img, 3, out);
-                drawResult(rawImage, rect, res, i, j);
+
+                // Predict
+                knnRes = knn->findNearest(img, 3, knnOut);
+                svmRes = svm->predict(img, svmOut);
+                nbcRes = nbc->predict(img, nbcOut);
+                drawResult(knnRawImage, rect, knnRes, i, j);
+                drawResult(svmRawImage, rect, svmRes, i, j);
+                drawResult(nbcRawImage, rect, nbcRes, i, j);
             }
         }
     }
 
-    imshow("TEST", rawImage);
+    imshow(knnWindowName, knnRawImage);
+    imshow(svmWindowName, svmRawImage);
+    imshow(nbcWindowName, nbcRawImage);
 }
 
 void addTrainData(Mat &trainData, Mat image, int index)
@@ -135,6 +149,12 @@ int main(int argc, const char** argv)
     string rootDir, currDir;
     vector<string> filenames;
     Ptr<ml::KNearest> knn(ml::KNearest::create());
+    Ptr<ml::SVM> svm(ml::SVM::create());
+    svm->setType(ml::SVM::C_SVC);
+    svm->setKernel(ml::SVM::POLY);
+    svm->setGamma(3);
+    svm->setDegree(10.0);
+    Ptr<ml::NormalBayesClassifier> nbc(ml::NormalBayesClassifier::create());
     
     if (argc < 2)
     {
@@ -165,7 +185,11 @@ int main(int argc, const char** argv)
 		}
 	}
     knn->train(trainData, ml::ROW_SAMPLE, classes);
-    imgFindNearest("./set/test.jpg", knn);
+    svm->train(trainData, ml::ROW_SAMPLE, classes);
+    nbc->train(trainData, ml::ROW_SAMPLE, classes);
+    
+    imgPredict("./set/test.jpg", knn, svm, nbc);
+
 
 
 	waitKey(0);
